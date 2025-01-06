@@ -7,34 +7,30 @@ import {NumericArrayLib} from "@redstone-finance/evm-connector/contracts/libs/Nu
 import {IChronicle} from "./IChronicle.sol";
 import {IOracleAggregator} from "./IOracleAggregator.sol";
 
-// Open questions:
-// - How can we ensure that chronicle will toll our contract
-// - Should we be able to change the ageThreshold
+// - We need to implement many gas-related tests to check different cases, e.g. when gas finished on one of the calls
+// I think it still should be ok. But we should also try to manipulate and cause failres by too-gas-consuming PriceFeeds
 
 abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     /// @dev The decimals value used by Chronicle Protocol oracles.
     uint8 internal constant _DECIMALS_CHRONICLE = 18;
+    uint256 internal constant _GAS_LIMIT_PER_ORACLE_READ = 100_000;
 
     uint32 public constant ageThreshold = 2 days;
     uint8 public constant decimals = 8;
 
-    /// @inheritdoc IOracleAggregator
-    address public immutable chronicle;
-    /// @inheritdoc IOracleAggregator
-    address public immutable chainlink;
-    /// @inheritdoc IOracleAggregator
-    address public immutable redstone;
 
-    constructor(address chronicle_, address chainlink_, address redstone_) payable {
-        chronicle = chronicle_;
-        chainlink = chainlink_;
-        redstone = redstone_;
-    }
+    constructor() {}
+
+    function chronicle() public pure virtual returns(address);
+    function chainlink() public pure virtual returns(address);
+    function redstone() public pure virtual returns(address);
+    function checkAuthorisedDataConsumer(address sender) public pure virtual;
 
     function _read() internal view returns (uint256 value, uint8 goodOraclesCount) {
+        checkAuthorisedDataConsumer(msg.sender);
         (bool okChr, uint256 valChr) = _readChronicle();
-        (bool okChl, uint256 valChl) = _readFromAggregatorV3Interface(chainlink);
-        (bool okRed, uint256 valRed) = _readFromAggregatorV3Interface(redstone);
+        (bool okChl, uint256 valChl) = _safeLatestRoundData(chainlink());
+        (bool okRed, uint256 valRed) = _safeLatestRoundData(redstone());
 
         uint256 index = 0;
         goodOraclesCount = (okChr ? 1 : 0) + (okChl ? 1 : 0) + (okRed ? 1 : 0);
@@ -47,38 +43,37 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
         value = NumericArrayLib.pickMedian(values);
     }
 
-    // TODO: modify this function to avoid issues with code rights
-    // TODO: implement the low-level solution with tests
-    function _readFromAggregatorV3Interface(address priceFeed) internal view returns (bool, uint256) {
-        // !!! IMPORTANT WARNING !!!
-        //
-        // This function implementation MUST NOT be used when the Chainlink
-        // oracle's implementation is behind a proxy!
-        //
-        // Otherwise a malicious contract update is possible via which every
-        // read will fail. Note that this vulnerability _cannot_ be fixed via
-        // using try-catch as of version 0.8.24. This is because the abi.decoding
-        // of the return data is "outside" the try-block.
-        //
-        // The only way to fully protect against malicious contract updates is
-        // via using a low-level staticcall with _manual_ returndata decoding!
-        //
-        // Note that the trust towards Chainlink not performing a malicious
-        // contract update is different from the trust to not maliciously update
-        // the oracle's configuration. While the latter can lead to invalid and
-        // malicious price updates, the first may lead to a total
-        // denial-of-service for protocols reading the proxy.
+    /**
+     * @notice Safely calls `latestRoundData` on a Chainlink Price Feed.
+     * @param priceFeed The address of the Chainlink Price Feed.
+     * @return success Whether the call succeeded.
+     * @return val The oracle value
+     */
+    function _safeLatestRoundData(address priceFeed) internal view returns (bool success, uint256 val) {
+        bytes memory data = abi.encodeWithSelector(
+            AggregatorV3Interface.latestRoundData.selector
+        );
 
-        try AggregatorV3Interface(priceFeed).latestRoundData() returns (
-            uint80, /*roundId*/
-            int answer,
-            uint, /*startedAt*/
-            uint updatedAt,
-            uint80 /*answeredInRound*/
-        ) {
-            // Decide whether value is stale.
-            // Unchecked to circumvent revert due to overflow. Overflow otherwise
-            // no issue as updatedAt is solely controlled by Chainlink anyway.
+        bytes memory returnData;
+
+        (success, returnData) = priceFeed.staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
+
+        if (success && returnData.length == 160) {
+            // TODO: replace with abi.decode
+            uint80 roundId;
+            int256 answer;
+            uint256 startedAt;
+            uint256 updatedAt;
+            uint80 answeredInRound;
+
+            assembly {
+                roundId := mload(add(returnData, 0x20))
+                answer := mload(add(returnData, 0x40))
+                startedAt := mload(add(returnData, 0x60))
+                updatedAt := mload(add(returnData, 0x80))
+                answeredInRound := mload(add(returnData, 0xa0))
+            }
+
             bool isStale;
             unchecked {
                 isStale = updatedAt + ageThreshold < block.timestamp;
@@ -91,40 +86,59 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
                 return (false, 0);
             }
 
-            // Otherwise ok.
-            return (true, uint128(uint(answer)));
-        } catch {
+            // Otherwise return the value
+            return (true, uint256(answer));
+        } else {
             return (false, 0);
         }
     }
 
-
-
     // TODO: modify this function to avoid issues with code rights
     function _readChronicle() internal view returns (bool, uint256) {
-        // Note that Chronicle's `try...` functions revert iff the caller is not
-        // toll'ed.
-        try IChronicle(chronicle).tryReadWithAge() returns (
-            bool ok, uint val, uint age
-        ) {
-            // assert(val <= type(uint128).max);
-            // assert(!ok || val != 0); // ok -> val != 0
-            // assert(age <= block.timestamp);
+        bytes memory data = abi.encodeWithSelector(IChronicle.tryReadWithAge.selector);
+        (bool callSuccess, bytes memory returnData) = chronicle().staticcall(data);
 
-            // Fail if not ok or value stale.
-            if (!ok || age + ageThreshold < block.timestamp) {
+        // TODO: add staleness checking
+
+        if (callSuccess && returnData.length == 64) {
+            (bool validOracleResponse, uint256 value, uint256 age) = abi.decode(returnData, (bool, uint256, uint256));
+
+            if (!validOracleResponse || age + ageThreshold < block.timestamp) {
                 return (false, 0);
             }
 
-            // Scale value down from Chronicle decimals to Aggor decimals.
-            // assert(_DECIMALS_CHRONICLES >= decimals).
-            val /= 10 ** (_DECIMALS_CHRONICLE - decimals);
+            value /= 10 ** (_DECIMALS_CHRONICLE - decimals);
 
-            return (true, val);
-        } catch {
-            // assert(!IToll(chronicle).tolled(address(this)));
+            return (true, value);
+        } else {
             return (false, 0);
         }
+
+        // TODO: complete the safe implementation of chronicle
+
+        // // Note that Chronicle's `try...` functions revert iff the caller is not
+        // // toll'ed.
+        // try IChronicle(chronicle).tryReadWithAge() returns (
+        //     bool ok, uint val, uint age
+        // ) {
+        //     // assert(val <= type(uint128).max);
+        //     // assert(!ok || val != 0); // ok -> val != 0
+        //     // assert(age <= block.timestamp);
+
+        //     // Fail if not ok or value stale.
+        //     if (!ok || age + ageThreshold < block.timestamp) {
+        //         return (false, 0);
+        //     }
+
+        //     // Scale value down from Chronicle decimals to Aggor decimals.
+        //     // assert(_DECIMALS_CHRONICLES >= decimals).
+        //     val /= 10 ** (_DECIMALS_CHRONICLE - decimals);
+
+        //     return (true, val);
+        // } catch {
+        //     // assert(!IToll(chronicle).tolled(address(this)));
+        //     return (false, 0);
+        // }
     }
 
     function latestRoundData()
