@@ -10,25 +10,26 @@ import {IOracleAggregator} from "./IOracleAggregator.sol";
 // - We need to implement many gas-related tests to check different cases, e.g. when gas finished on one of the calls
 // I think it still should be ok. But we should also try to manipulate and cause failres by too-gas-consuming PriceFeeds
 
+// TODO: maybe conversion to `int` in final chainlink functions should be smarter
+
 abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
-    /// @dev The decimals value used by Chronicle Protocol oracles.
+    // Decimals used by Chronicle
     uint8 internal constant _DECIMALS_CHRONICLE = 18;
     uint256 internal constant _GAS_LIMIT_PER_ORACLE_READ = 100_000;
+    uint256 internal constant _LATEST_ROUND_DATA_RETURN_SIZE = 160;
+    uint256 internal constant _TRY_READ_WITH_AGE_RETURN_SIZE = 96;
 
     uint32 public constant ageThreshold = 2 days;
     uint8 public constant decimals = 8;
 
-
-    constructor() {}
-
     function chronicle() public pure virtual returns(address);
     function chainlink() public pure virtual returns(address);
     function redstone() public pure virtual returns(address);
-    function checkAuthorisedDataConsumer(address sender) public pure virtual;
+    function checkAuthorisedDataConsumer(address consumer) public pure virtual;
 
-    function _read() internal view returns (uint256 value, uint8 goodOraclesCount) {
+    function getAggregatedOracleValue() public view returns (uint256 value, uint8 goodOraclesCount) {
         checkAuthorisedDataConsumer(msg.sender);
-        (bool okChr, uint256 valChr) = _readChronicle();
+        (bool okChr, uint256 valChr) = _safeReadFromChronicle();
         (bool okChl, uint256 valChl) = _safeLatestRoundData(chainlink());
         (bool okRed, uint256 valRed) = _safeLatestRoundData(redstone());
 
@@ -44,9 +45,9 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     }
 
     /**
-     * @notice Safely calls `latestRoundData` on a Chainlink Price Feed.
-     * @param priceFeed The address of the Chainlink Price Feed.
-     * @return success Whether the call succeeded.
+     * @notice Safely calls `latestRoundData` on a Chainlink-compatible Price Feed contract
+     * @param priceFeed The address of the Chainlink Price Feed contract
+     * @return success If the call succeeded and is not stale
      * @return val The oracle value
      */
     function _safeLatestRoundData(address priceFeed) internal view returns (bool success, uint256 val) {
@@ -58,87 +59,47 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
         (success, returnData) = priceFeed.staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
 
-        if (success && returnData.length == 160) {
-            // TODO: replace with abi.decode
-            uint80 roundId;
-            int256 answer;
-            uint256 startedAt;
-            uint256 updatedAt;
-            uint80 answeredInRound;
-
-            assembly {
-                roundId := mload(add(returnData, 0x20))
-                answer := mload(add(returnData, 0x40))
-                startedAt := mload(add(returnData, 0x60))
-                updatedAt := mload(add(returnData, 0x80))
-                answeredInRound := mload(add(returnData, 0xa0))
-            }
+        if (success && returnData.length == _LATEST_ROUND_DATA_RETURN_SIZE) {
+            (/* roundId */, int256 answer, /* startedAt */, uint256 updatedAt, /* answeredInRound */) =
+                abi.decode(returnData, (uint80, int256, uint256, uint256, uint80));
 
             bool isStale;
             unchecked {
                 isStale = updatedAt + ageThreshold < block.timestamp;
             }
 
-            // Fail if answer stale or not in [1, type(uint128).max].
-            if (
-                isStale || answer <= 0 || uint(answer) > uint(type(uint128).max)
-            ) {
+            if (isStale || answer <= 0 || uint(answer) > uint(type(uint128).max)) {
                 return (false, 0);
             }
 
-            // Otherwise return the value
             return (true, uint256(answer));
-        } else {
-            return (false, 0);
         }
+        
+        return (false, 0);
     }
 
-    // TODO: modify this function to avoid issues with code rights
-    function _readChronicle() internal view returns (bool, uint256) {
+    /**
+     * @notice Safely calls `tryReadWithAge` on the Chronnicle Oracle contract
+     * @return success If the call succeeded and is not stale
+     * @return val The oracle value
+     */
+    function _safeReadFromChronicle() internal view returns (bool, uint256) {
         bytes memory data = abi.encodeWithSelector(IChronicle.tryReadWithAge.selector);
-        (bool callSuccess, bytes memory returnData) = chronicle().staticcall(data);
+        (bool callSuccess, bytes memory returnData) = chronicle().staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
 
-        // TODO: add staleness checking
+        if (callSuccess && returnData.length == _TRY_READ_WITH_AGE_RETURN_SIZE) {
+            (bool isValid, uint256 value, uint256 age) = abi.decode(returnData, (bool, uint256, uint256));
 
-        if (callSuccess && returnData.length == 64) {
-            (bool validOracleResponse, uint256 value, uint256 age) = abi.decode(returnData, (bool, uint256, uint256));
-
-            if (!validOracleResponse || age + ageThreshold < block.timestamp) {
+            if (!isValid || age + ageThreshold < block.timestamp) {
                 return (false, 0);
             }
 
             value /= 10 ** (_DECIMALS_CHRONICLE - decimals);
 
             return (true, value);
-        } else {
-            return (false, 0);
         }
 
-        // TODO: complete the safe implementation of chronicle
-
-        // // Note that Chronicle's `try...` functions revert iff the caller is not
-        // // toll'ed.
-        // try IChronicle(chronicle).tryReadWithAge() returns (
-        //     bool ok, uint val, uint age
-        // ) {
-        //     // assert(val <= type(uint128).max);
-        //     // assert(!ok || val != 0); // ok -> val != 0
-        //     // assert(age <= block.timestamp);
-
-        //     // Fail if not ok or value stale.
-        //     if (!ok || age + ageThreshold < block.timestamp) {
-        //         return (false, 0);
-        //     }
-
-        //     // Scale value down from Chronicle decimals to Aggor decimals.
-        //     // assert(_DECIMALS_CHRONICLES >= decimals).
-        //     val /= 10 ** (_DECIMALS_CHRONICLE - decimals);
-
-        //     return (true, val);
-        // } catch {
-        //     // assert(!IToll(chronicle).tolled(address(this)));
-        //     return (false, 0);
-        // }
+        return (false, 0);
     }
 
     function latestRoundData()
@@ -153,7 +114,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
             uint80 answeredInRound
         )
     {
-        (uint256 val, /* goodOraclesCount */) = _read();
+        (uint256 val, /* goodOraclesCount */) = getAggregatedOracleValue();
 
         roundId = 1;
         answer = int(val);
@@ -163,7 +124,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     }
 
     function latestAnswer() external view returns (int) {
-        (uint256 val, /* goodOraclesCount */) = _read();
+        (uint256 val, /* goodOraclesCount */) = getAggregatedOracleValue();
 
         return int(val);
     }
