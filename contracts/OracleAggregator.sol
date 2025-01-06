@@ -14,13 +14,16 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     uint256 internal constant _LATEST_ROUND_DATA_RETURN_SIZE = 160;
     uint256 internal constant _TRY_READ_WITH_AGE_RETURN_SIZE = 96;
 
-    uint32 public constant ageThreshold = 2 days;
     uint8 public constant decimals = 8;
 
     function chronicle() public pure virtual returns(address);
     function chainlink() public pure virtual returns(address);
     function redstone() public pure virtual returns(address);
     function checkAuthorisedDataConsumer(address consumer) public pure virtual;
+
+    function getAgeThreshold() public pure virtual returns(uint32) {
+        return 2 days;
+    }
 
     function getAggregatedOracleValue() public view returns (uint256 value, uint8 goodOraclesCount) {
         checkAuthorisedDataConsumer(msg.sender);
@@ -60,7 +63,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
             bool isStale;
             unchecked {
-                isStale = updatedAt + ageThreshold < block.timestamp;
+                isStale = updatedAt + getAgeThreshold() < block.timestamp;
             }
 
             if (isStale || answer <= 0 || uint(answer) > uint(type(uint128).max)) {
@@ -85,7 +88,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
         if (callSuccess && returnData.length == _TRY_READ_WITH_AGE_RETURN_SIZE) {
             (bool isValid, uint256 value, uint256 age) = abi.decode(returnData, (bool, uint256, uint256));
 
-            if (!isValid || age + ageThreshold < block.timestamp) {
+            if (!isValid || age + getAgeThreshold() < block.timestamp) {
                 return (false, 0);
             }
 
