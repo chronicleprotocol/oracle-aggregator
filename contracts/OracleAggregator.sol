@@ -7,11 +7,6 @@ import {NumericArrayLib} from "@redstone-finance/evm-connector/contracts/libs/Nu
 import {IChronicle} from "./IChronicle.sol";
 import {IOracleAggregator} from "./IOracleAggregator.sol";
 
-// - We need to implement many gas-related tests to check different cases, e.g. when gas finished on one of the calls
-// I think it still should be ok. But we should also try to manipulate and cause failres by too-gas-consuming PriceFeeds
-
-// TODO: maybe conversion to `int` in final chainlink functions should be smarter
-
 abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     // Decimals used by Chronicle
     uint8 internal constant _DECIMALS_CHRONICLE = 18;
