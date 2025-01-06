@@ -1,5 +1,5 @@
-- Add the function for reading with goodOraclesCounter
-- Implement whitelisting of consumer contract (check value for the _bud in current deployment)
+- Add the function for reading with goodOraclesCounter - DONE
+- Implement whitelisting of consumer contract (check value for the _bud in current deployment) - DONE
 - Implement simple tests
 - Compare gas costs of different implementations for Median (cmp our function with the one from Aggor)
 - Cosmetic improvements in the OracleAggregator contract
