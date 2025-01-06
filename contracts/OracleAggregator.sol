@@ -121,9 +121,21 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
         answeredInRound = 1; // = roundId
     }
 
-    function latestAnswer() external view returns (int) {
+    function latestAnswer() external view returns (int256) {
         (uint256 val, /* goodOraclesCount */) = getAggregatedOracleValue();
 
         return int(val);
+    }
+
+    function latestRound() external pure virtual returns (uint80) {
+        revert();
+    }
+
+    function getRoundData(uint80 /* requestedRoundId */) external pure override returns (uint80, int256, uint256, uint256, uint80) {
+        revert();
+    }
+
+    function version() external virtual pure override returns (uint256) {
+        return 1;
     }
 }
