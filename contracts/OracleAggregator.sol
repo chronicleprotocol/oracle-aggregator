@@ -26,7 +26,6 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     }
 
     function getAggregatedOracleValue() public view returns (uint256 value, uint8 goodOraclesCount) {
-        checkAuthorisedDataConsumer(msg.sender);
         (bool okChr, uint256 valChr) = _safeReadFromChronicle();
         (bool okChl, uint256 valChl) = _safeLatestRoundData(chainlink());
         (bool okRed, uint256 valRed) = _safeLatestRoundData(redstone());
@@ -88,7 +87,12 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
         if (callSuccess && returnData.length == _TRY_READ_WITH_AGE_RETURN_SIZE) {
             (bool isValid, uint256 value, uint256 age) = abi.decode(returnData, (bool, uint256, uint256));
 
-            if (!isValid || age + getAgeThreshold() < block.timestamp) {
+            bool isStale;
+            unchecked {
+                isStale = age + getAgeThreshold() < block.timestamp;
+            }
+
+            if (!isValid || isStale) {
                 return (false, 0);
             }
 
@@ -112,6 +116,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
             uint80 answeredInRound
         )
     {
+        checkAuthorisedDataConsumer(msg.sender);
         (uint256 val, /* goodOraclesCount */) = getAggregatedOracleValue();
 
         roundId = 1;
@@ -122,6 +127,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     }
 
     function latestAnswer() external view returns (int256) {
+        checkAuthorisedDataConsumer(msg.sender);
         (uint256 val, /* goodOraclesCount */) = getAggregatedOracleValue();
 
         return int(val);

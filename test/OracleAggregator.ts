@@ -1,127 +1,96 @@
-import {
-  time,
-  loadFixture,
-} from "@nomicfoundation/hardhat-toolbox/network-helpers";
-import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
+import { time, loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { expect } from "chai";
 import hre from "hardhat";
 
+/**
+ * Deploy OracleAggregator with mock oracles.
+ */
+async function deployOracleAggregatorFixture() {
+  const [owner, authorizedConsumer, otherAccount] = await hre.ethers.getSigners();
+
+  // Deploy mock oracles
+  const ChainlinkPriceFeedMock = await hre.ethers.getContractFactory("ChainlinkLikePriceFeedMock");
+  const ChronicleOracleMock = await hre.ethers.getContractFactory("ChronicleOracleMock");
+  const RedstonePriceFeedMock = await hre.ethers.getContractFactory("ChainlinkLikePriceFeedMock");
+
+  const chainlinkMock = await ChainlinkPriceFeedMock.deploy();
+  const chronicleMock = await ChronicleOracleMock.deploy();
+  const redstoneMock = await RedstonePriceFeedMock.deploy();
+
+  // Deploy OracleAggregator
+  const OracleAggregator = await hre.ethers.getContractFactory("OracleAggregatorMock");
+  const aggregator = await OracleAggregator.deploy();
+
+  return {
+    aggregator,
+    chainlinkMock,
+    chronicleMock,
+    redstoneMock,
+    owner,
+    authorizedConsumer,
+    otherAccount,
+  };
+}
+
+/**
+ * Test cases for OracleAggregator.
+ */
 describe("OracleAggregator", function () {
-  // We define a fixture to reuse the same setup in every test.
-  // We use loadFixture to run this setup once, snapshot that state,
-  // and reset Hardhat Network to that snapshot in every test.
-  async function deployOneYearLockFixture() {
-    const ONE_YEAR_IN_SECS = 365 * 24 * 60 * 60;
-    const ONE_GWEI = 1_000_000_000;
-
-    const lockedAmount = ONE_GWEI;
-    const unlockTime = (await time.latest()) + ONE_YEAR_IN_SECS;
-
-    // Contracts are deployed using the first signer/account by default
-    const [owner, otherAccount] = await hre.ethers.getSigners();
-
-    const OracleAggregator = await hre.ethers.getContractFactory("OracleAggregator");
-    const lock = await OracleAggregator.deploy(unlockTime, { value: lockedAmount });
-
-    return { lock, unlockTime, lockedAmount, owner, otherAccount };
-  }
-
   describe("Deployment", function () {
-    it("Should set the right unlockTime", async function () {
-      const { lock, unlockTime } = await loadFixture(deployOneYearLockFixture);
+    it("Should deploy with correct initial state", async function () {
+      const { aggregator } = await loadFixture(deployOracleAggregatorFixture);
 
-      expect(await lock.unlockTime()).to.equal(unlockTime);
-    });
-
-    it("Should set the right owner", async function () {
-      const { lock, owner } = await loadFixture(deployOneYearLockFixture);
-
-      expect(await lock.owner()).to.equal(owner.address);
-    });
-
-    it("Should receive and store the funds to lock", async function () {
-      const { lock, lockedAmount } = await loadFixture(
-        deployOneYearLockFixture
-      );
-
-      expect(await hre.ethers.provider.getBalance(lock.target)).to.equal(
-        lockedAmount
-      );
-    });
-
-    it("Should fail if the unlockTime is not in the future", async function () {
-      // We don't use the fixture here because we want a different deployment
-      const latestTime = await time.latest();
-      const Lock = await hre.ethers.getContractFactory("OracleAggregator");
-      await expect(Lock.deploy(latestTime, { value: 1 })).to.be.revertedWith(
-        "Unlock time should be in the future"
-      );
+      expect(await aggregator.decimals()).to.equal(8);
     });
   });
 
-  describe("Withdrawals", function () {
-    describe("Validations", function () {
-      it("Should revert with the right error if called too soon", async function () {
-        const { lock } = await loadFixture(deployOneYearLockFixture);
+  describe("Oracle Data Aggregation", function () {
+    it("Should return the median value from oracles", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
 
-        await expect(lock.withdraw()).to.be.revertedWith(
-          "You can't withdraw yet"
-        );
-      });
+      // Set mock oracle responses
+      await chainlinkMock.setLatestAnswer(100);
+      await chronicleMock.setLatestAnswer(200);
+      await redstoneMock.setLatestAnswer(300);
 
-      it("Should revert with the right error if called from another account", async function () {
-        const { lock, unlockTime, otherAccount } = await loadFixture(
-          deployOneYearLockFixture
-        );
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
 
-        // We can increase the time in Hardhat Network
-        await time.increaseTo(unlockTime);
-
-        // We use lock.connect() to send a transaction from another account
-        await expect(lock.connect(otherAccount).withdraw()).to.be.revertedWith(
-          "You aren't the owner"
-        );
-      });
-
-      it("Shouldn't fail if the unlockTime has arrived and the owner calls it", async function () {
-        const { lock, unlockTime } = await loadFixture(
-          deployOneYearLockFixture
-        );
-
-        // Transactions are sent using the first signer by default
-        await time.increaseTo(unlockTime);
-
-        await expect(lock.withdraw()).not.to.be.reverted;
-      });
+      expect(value).to.equal(200); // Median of [100, 200, 300]
+      expect(goodOraclesCount).to.equal(3);
     });
 
-    describe("Events", function () {
-      it("Should emit an event on withdrawals", async function () {
-        const { lock, unlockTime, lockedAmount } = await loadFixture(
-          deployOneYearLockFixture
-        );
+    it("Should handle missing oracle responses gracefully", async function () {
+      const { aggregator, chainlinkMock, chronicleMock } = await loadFixture(deployOracleAggregatorFixture);
 
-        await time.increaseTo(unlockTime);
+      // Set only two oracles
+      await chainlinkMock.setLatestAnswer(150);
+      await chronicleMock.setLatestAnswer(250);
 
-        await expect(lock.withdraw())
-          .to.emit(lock, "Withdrawal")
-          .withArgs(lockedAmount, anyValue); // We accept any value as `when` arg
-      });
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(200); // Median of [150, 250]
+      expect(goodOraclesCount).to.equal(2);
     });
 
-    describe("Transfers", function () {
-      it("Should transfer the funds to the owner", async function () {
-        const { lock, unlockTime, lockedAmount, owner } = await loadFixture(
-          deployOneYearLockFixture
-        );
+    it("Should revert if no oracles return valid data", async function () {
+      const { aggregator } = await loadFixture(deployOracleAggregatorFixture);
 
-        await time.increaseTo(unlockTime);
+      await expect(aggregator.getAggregatedOracleValue()).to.be.revertedWith("No valid oracle data");
+    });
+  });
 
-        await expect(lock.withdraw()).to.changeEtherBalances(
-          [owner, lock],
-          [lockedAmount, -lockedAmount]
-        );
-      });
+  describe("Access Control", function () {
+    it("Should allow only authorized consumers to call getAggregatedOracleValue", async function () {
+      const { aggregator, authorizedConsumer, otherAccount } = await loadFixture(deployOracleAggregatorFixture);
+
+      // Authorize a consumer
+      await aggregator.checkAuthorisedDataConsumer(authorizedConsumer.address);
+
+      // Call as an authorized consumer
+      await expect(aggregator.connect(authorizedConsumer).getAggregatedOracleValue()).not.to.be.reverted;
+
+      // Call as an unauthorized consumer
+      await expect(aggregator.connect(otherAccount).getAggregatedOracleValue()).to.be.revertedWith("Not authorized");
     });
   });
 });
