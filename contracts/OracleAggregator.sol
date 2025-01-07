@@ -20,10 +20,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     function chainlink() public view virtual returns(address);
     function redstone() public view virtual returns(address);
     function checkAuthorisedDataConsumer(address consumer) public view virtual;
-
-    function getAgeThreshold() public view virtual returns(uint32) {
-        return 2 days;
-    }
+    function getAgeThreshold() public view virtual returns(uint32);
 
     function getAggregatedOracleValue() public view returns (uint256 value, uint8 goodOraclesCount) {
         (bool okChr, uint256 valChr) = _safeReadFromChronicle();
