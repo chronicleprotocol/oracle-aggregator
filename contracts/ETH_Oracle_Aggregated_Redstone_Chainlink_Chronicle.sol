@@ -25,7 +25,7 @@ contract ETH_Oracle_Aggregated_Chronicle_Chainlink_Redstone is OracleAggregator 
     }
 
     function checkAuthorisedDataConsumer(address consumer) public pure virtual override {
-        if (consumer != address(0) && consumer != 0x8105f69D9C41644c6A0803fDA7D03Aa70996cFD9) {
+        if (consumer != 0x8105f69D9C41644c6A0803fDA7D03Aa70996cFD9) {
             revert UnathorisedDataConsumer(consumer);
         }
     }
