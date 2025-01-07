@@ -11,6 +11,6 @@ interface IOracleAggregator {
     function chronicle() external view returns (address chronicle);
     function chainlink() external view returns (address chainlink);
     function redstone() external view returns (address redstone);
-    function getAgeThreshold() external pure returns(uint32);
-    function checkAuthorisedDataConsumer(address consumer) external pure;
+    function getAgeThreshold() external view returns(uint32);
+    function checkAuthorisedDataConsumer(address consumer) external view;
 }

@@ -2,36 +2,55 @@
 
 pragma solidity ^0.8.17;
 
-import {OracleAggregator} from "./OracleAggregator.sol";
+import {OracleAggregator} from "../OracleAggregator.sol";
 
 contract OracleAggregatorMock is OracleAggregator {
     error UnathorisedDataConsumer(address consumer);
 
+    address internal _chainlink;
+    address internal _chronicle;
+    address internal _redstone;
+    address internal _authorisedConsumer;
+    uint32 internal _ageThreshold;
+
+    constructor(address __chainlink, address __chronicle, address __redstone, uint32 __ageThreshold, address __authorisedConsumer) {
+        _chainlink = __chainlink;
+        _chronicle = __chronicle;
+        _redstone = __redstone;
+        _ageThreshold = __ageThreshold;
+        _authorisedConsumer = __authorisedConsumer;
+    }
+
     function description() public view virtual override returns (string memory) {
-        return "Aggregated price feed ETH/USD from Chronicle, Chainlink, and RedStone";
+        return "Mock Oracle Aggregator for tests";
     }
     
-    function chronicle() public pure virtual override returns(address) {
-        return 0x46ef0071b1E2fF6B42d36e5A177EA43Ae5917f4E;
+    function chronicle() public view virtual override returns(address) {
+        return _chronicle;
     }
 
-    function chainlink() public pure virtual override returns(address) {
-        return 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
+    function chainlink() public view virtual override returns(address) {
+        return _chainlink;
     }
 
-    function redstone() public pure virtual override returns(address) {
-        // TODO: change to ETH Price Feed, currently it's weETH/USD feed
-        return 0xdDb6F90fFb4d3257dd666b69178e5B3c5Bf41136;
+    function redstone() public view virtual override returns(address) {
+        return _redstone;
     }
 
-    function checkAuthorisedDataConsumer(address consumer) public pure virtual override {
-        // if (consumer != address(0) && consumer != 0x8105f69D9C41644c6A0803fDA7D03Aa70996cFD9) {
-        //     revert UnathorisedDataConsumer(consumer);
-        // }
+    function checkAuthorisedDataConsumer(address consumer) public view virtual override {
+        if (_authorisedConsumer == address(0)) {
+            // If not set, then allow everyone to read
+            return;
+        }
+
+        // Otherwise verify
+        if (consumer != _authorisedConsumer) {
+            revert UnathorisedDataConsumer(consumer);
+        }
     }
 
-    function getAgeThreshold() public pure virtual override returns(uint32) {
-        return 25 days;
+    function getAgeThreshold() public view virtual override returns(uint32) {
+        return _ageThreshold;
     }
 
 }

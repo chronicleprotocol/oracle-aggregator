@@ -16,12 +16,12 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
     uint8 public constant decimals = 8;
 
-    function chronicle() public pure virtual returns(address);
-    function chainlink() public pure virtual returns(address);
-    function redstone() public pure virtual returns(address);
-    function checkAuthorisedDataConsumer(address consumer) public pure virtual;
+    function chronicle() public view virtual returns(address);
+    function chainlink() public view virtual returns(address);
+    function redstone() public view virtual returns(address);
+    function checkAuthorisedDataConsumer(address consumer) public view virtual;
 
-    function getAgeThreshold() public pure virtual returns(uint32) {
+    function getAgeThreshold() public view virtual returns(uint32) {
         return 2 days;
     }
 
