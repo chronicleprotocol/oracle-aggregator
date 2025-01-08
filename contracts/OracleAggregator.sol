@@ -26,7 +26,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
     // Decimals used by Chronicle
     uint8 internal constant _DECIMALS_CHRONICLE = 18;
-    uint256 internal constant _GAS_LIMIT_PER_ORACLE_READ = 100_000;
+    uint256 internal constant _GAS_LIMIT_PER_ORACLE_READ = 300_000; // Average gas cost for oracle calls is ~20K
     uint256 internal constant _LATEST_ROUND_DATA_RETURN_SIZE = 160;
     uint256 internal constant _TRY_READ_WITH_AGE_RETURN_SIZE = 96;
 
@@ -40,17 +40,17 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
     // Diagnostic function, everyone can call it (it's not protected by the `checkAuthorisedDataConsumer`)
     function getAggregatedOracleValue() public view returns (uint256 value, uint8 goodOraclesCount) {
-        (bool okChr, uint256 valChr) = _safeReadFromChronicle();
-        (bool okChl, uint256 valChl) = _safeLatestRoundData(chainlink());
-        (bool okRed, uint256 valRed) = _safeLatestRoundData(redstone());
+        (bool okChronicle, uint256 valChronicle) = _safeReadFromChronicle();
+        (bool okChainlink, uint256 valChainlink) = _safeLatestRoundData(chainlink());
+        (bool okRedstone, uint256 valRedstone) = _safeLatestRoundData(redstone());
 
         uint256 index = 0;
-        goodOraclesCount = (okChr ? 1 : 0) + (okChl ? 1 : 0) + (okRed ? 1 : 0);
+        goodOraclesCount = (okChronicle ? 1 : 0) + (okChainlink ? 1 : 0) + (okRedstone ? 1 : 0);
         uint256[] memory values = new uint256[](goodOraclesCount);
 
-        if (okChr) values[index++] = valChr;
-        if (okChl) values[index++] = valChl;
-        if (okRed) values[index++] = valRed;
+        if (okChronicle) values[index++] = valChronicle;
+        if (okChainlink) values[index++] = valChainlink;
+        if (okRedstone) values[index++] = valRedstone;
 
         value = NumericArrayLib.pickMedian(values);
     }
@@ -101,12 +101,16 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
         if (callSuccess && returnData.length == _TRY_READ_WITH_AGE_RETURN_SIZE) { // Checking returnData.length to avoid failures in abi.decode
             (bool isValid, uint256 value, uint256 age) = abi.decode(returnData, (bool, uint256, uint256));
 
+            if (!isValid) {
+                return (false, 0);
+            }
+
             bool isStale;
             unchecked {
                 isStale = age + getAgeThreshold() < block.timestamp;
             }
 
-            if (!isValid || isStale) {
+            if (isStale) { // We don't do assert(value <= type(uint128).max), because we will divide the value by 10**10 below
                 return (false, 0);
             }
 
