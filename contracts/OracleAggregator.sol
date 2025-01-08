@@ -7,6 +7,20 @@ import {NumericArrayLib} from "./libs/NumericArrayLib.sol";
 import {IChronicle} from "./IChronicle.sol";
 import {IOracleAggregator} from "./IOracleAggregator.sol";
 
+/**
+ * @title OracleAggregator
+ * @author The Redstone Oracles team
+ * @notice This contract aggregates price data from multiple blockchain oracles: Chainlink, Chronicle, and RedStone.
+ * 
+ * ## Key Principles:
+ * - **Simplicity:** The contract is designed to be as simple as possible to minimize the risk of bugs.
+ * - **Immutable Configuration:** There are no in-contract authorization mechanisms for admin wallets. Any changes require deploying a new version of the contract.
+ * - **Partial AggregatorV3Interface Implementation:** The contract implements only `latestRoundData` and `latestAnswer` functions to reduce complexity.
+ * - **Whitelisted Reads:** Only authorized addresses can call Chainlink functions. It can be configured in the `checkAuthorisedDataConsumer` method.
+ * - **Gas Optimization:** Uses low-level calls and avoids unnecessary storage reads to reduce gas consumption.
+ * - **Oracle Isolation:** Each oracle call has a gas limit and low-level error handling to isolate failures. This ensures that a malfunction or compromise of one oracle won't impact the aggregator's reliability.
+ * - **Separation of Concerns:** The core logic resides in this contract (`OracleAggregator.sol`), while the configuration is handled in separate contracts (e.g. `ETH_Oracle_Aggregated_Redstone_Chainlink_Chronicle.sol`).
+ */
 abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     error UnsupportedFunction();
 
@@ -24,6 +38,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     function checkAuthorisedDataConsumer(address consumer) public view virtual;
     function getAgeThreshold() public view virtual returns(uint32);
 
+    // Diagnostic function, everyone can call it (it's not protected by the `checkAuthorisedDataConsumer`)
     function getAggregatedOracleValue() public view returns (uint256 value, uint8 goodOraclesCount) {
         (bool okChr, uint256 valChr) = _safeReadFromChronicle();
         (bool okChl, uint256 valChl) = _safeLatestRoundData(chainlink());
@@ -55,7 +70,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
         (success, returnData) = priceFeed.staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
 
-        if (success && returnData.length == _LATEST_ROUND_DATA_RETURN_SIZE) {
+        if (success && returnData.length == _LATEST_ROUND_DATA_RETURN_SIZE) { // Checking returnData.length to avoid failures in abi.decode
             (/* roundId */, int256 answer, /* startedAt */, uint256 updatedAt, /* answeredInRound */) =
                 abi.decode(returnData, (uint80, int256, uint256, uint256, uint80));
 
@@ -83,7 +98,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
         bytes memory data = abi.encodeWithSelector(IChronicle.tryReadWithAge.selector);
         (bool callSuccess, bytes memory returnData) = chronicle().staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
 
-        if (callSuccess && returnData.length == _TRY_READ_WITH_AGE_RETURN_SIZE) {
+        if (callSuccess && returnData.length == _TRY_READ_WITH_AGE_RETURN_SIZE) { // Checking returnData.length to avoid failures in abi.decode
             (bool isValid, uint256 value, uint256 age) = abi.decode(returnData, (bool, uint256, uint256));
 
             bool isStale;
