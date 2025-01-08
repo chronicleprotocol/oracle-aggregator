@@ -3,11 +3,13 @@
 pragma solidity ^0.8.17;
 
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
-import {NumericArrayLib} from "@redstone-finance/evm-connector/contracts/libs/NumericArrayLib.sol";
+import {NumericArrayLib} from "./libs/NumericArrayLib.sol";
 import {IChronicle} from "./IChronicle.sol";
 import {IOracleAggregator} from "./IOracleAggregator.sol";
 
 abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
+    error UnsupportedFunction();
+
     // Decimals used by Chronicle
     uint8 internal constant _DECIMALS_CHRONICLE = 18;
     uint256 internal constant _GAS_LIMIT_PER_ORACLE_READ = 100_000;
@@ -62,7 +64,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
                 isStale = updatedAt + getAgeThreshold() < block.timestamp;
             }
 
-            if (isStale || answer <= 0 || uint(answer) > uint(type(uint128).max)) {
+            if (isStale || answer <= 0 || uint256(answer) > uint256(type(uint128).max)) {
                 return (false, 0);
             }
 
@@ -108,8 +110,8 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
         returns (
             uint80 roundId,
             int answer,
-            uint startedAt,
-            uint updatedAt,
+            uint256 startedAt,
+            uint256 updatedAt,
             uint80 answeredInRound
         )
     {
@@ -131,11 +133,11 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     }
 
     function latestRound() external pure virtual returns (uint80) {
-        revert();
+        revert UnsupportedFunction();
     }
 
     function getRoundData(uint80 /* requestedRoundId */) external pure override returns (uint80, int256, uint256, uint256, uint80) {
-        revert();
+        revert UnsupportedFunction();
     }
 
     function version() external virtual pure override returns (uint256) {

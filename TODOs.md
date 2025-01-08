@@ -1,10 +1,10 @@
 - Add the function for reading with goodOraclesCounter - DONE
 - Implement whitelisting of consumer contract (check value for the _bud in current deployment) - DONE
-- Implement simple tests
-- Compare gas costs of different implementations for Median (cmp our function with the one from Aggor)
-- Cosmetic improvements in the OracleAggregator contract
+- Compare gas costs of different implementations for Median (cmp our function with the one from Aggor) - DONE
+- Cosmetic improvements in the OracleAggregator contract - DONE
+- Implement simple tests - IN PROGRESS
 - Implement a better low level function for interaction with Chainlink's price feeds under proxy
-    - Implement
+    - Implement - DONE
     - Add tests
 - Add much more tests
 - Send for the audit
