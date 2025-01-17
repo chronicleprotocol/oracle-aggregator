@@ -2,15 +2,18 @@
 
 pragma solidity ^0.8.17;
 
+import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import {IChronicle} from "./IChronicle.sol";
+
 interface IOracleAggregator {
 
     function getAggregatedOracleValue() external view returns (uint256 value, uint8 goodOraclesCount);
 
     // Immutable Configurations
 
-    function chronicle() external view returns (address chronicle);
-    function chainlink() external view returns (address chainlink);
-    function redstone() external view returns (address redstone);
+    function chronicle() external view returns (IChronicle chronicle);
+    function chainlink() external view returns (AggregatorV3Interface chainlink);
+    function redstone() external view returns (AggregatorV3Interface redstone);
     function getAgeThreshold() external view returns(uint32);
     function checkAuthorisedDataConsumer(address consumer) external view;
 }

@@ -32,9 +32,9 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
     uint8 public constant decimals = 8;
 
-    function chronicle() public view virtual returns(address);
-    function chainlink() public view virtual returns(address);
-    function redstone() public view virtual returns(address);
+    function chronicle() public view virtual returns(IChronicle);
+    function chainlink() public view virtual returns(AggregatorV3Interface);
+    function redstone() public view virtual returns(AggregatorV3Interface);
     function checkAuthorisedDataConsumer(address consumer) public view virtual;
     function getAgeThreshold() public view virtual returns(uint32);
 
@@ -61,14 +61,14 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
      * @return success If the call succeeded and is not stale
      * @return val The oracle value
      */
-    function _safeLatestRoundData(address priceFeed) internal view returns (bool success, uint256 val) {
+    function _safeLatestRoundData(AggregatorV3Interface priceFeed) internal view returns (bool success, uint256 val) {
         bytes memory data = abi.encodeWithSelector(
             AggregatorV3Interface.latestRoundData.selector
         );
 
         bytes memory returnData;
 
-        (success, returnData) = priceFeed.staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
+        (success, returnData) = address(priceFeed).staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
 
         if (success && returnData.length == _LATEST_ROUND_DATA_RETURN_SIZE) { // Checking returnData.length to avoid failures in abi.decode
             (/* roundId */, int256 answer, /* startedAt */, uint256 updatedAt, /* answeredInRound */) =
@@ -96,7 +96,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
      */
     function _safeReadFromChronicle() internal view returns (bool, uint256) {
         bytes memory data = abi.encodeWithSelector(IChronicle.tryReadWithAge.selector);
-        (bool callSuccess, bytes memory returnData) = chronicle().staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
+        (bool callSuccess, bytes memory returnData) = address(chronicle()).staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
 
         if (callSuccess && returnData.length == _TRY_READ_WITH_AGE_RETURN_SIZE) { // Checking returnData.length to avoid failures in abi.decode
             (bool isValid, uint256 value, uint256 age) = abi.decode(returnData, (bool, uint256, uint256));
