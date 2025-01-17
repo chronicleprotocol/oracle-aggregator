@@ -24,13 +24,12 @@ import {IOracleAggregator} from "./IOracleAggregator.sol";
 abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     error UnsupportedFunction();
 
-    // Decimals used by Chronicle
-    uint8 internal constant _DECIMALS_CHRONICLE = 18;
+    uint8 public constant decimals = 8;
+
+    uint256 internal constant _CHRONICLE_SCALE_FAKTOR = 10 ** (18 - decimals); // 10 ** (chronicle_decimals - decimals)
     uint256 internal constant _GAS_LIMIT_PER_ORACLE_READ = 500_000; // Average gas cost for oracle calls is ~20K. It's quite safe, but in case of ethereum hardforks (with signifncant changes in gas calculation) we would need to deploy a new version of this contract
     uint256 internal constant _LATEST_ROUND_DATA_RETURN_SIZE = 160;
-    uint256 internal constant _TRY_READ_WITH_AGE_RETURN_SIZE = 96;
-
-    uint8 public constant decimals = 8;
+    uint256 internal constant _TRY_READ_WITH_AGE_RETURN_SIZE = 96;    
 
     function chronicle() public view virtual returns(IChronicle);
     function chainlink() public view virtual returns(AggregatorV3Interface);
@@ -116,7 +115,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
                 return (false, 0);
             }
 
-            chronicleValue /= 10 ** (_DECIMALS_CHRONICLE - decimals);
+            chronicleValue /= _CHRONICLE_SCALE_FAKTOR;
 
             return (true, chronicleValue);
         }
