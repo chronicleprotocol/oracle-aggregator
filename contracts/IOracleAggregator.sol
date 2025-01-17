@@ -12,8 +12,8 @@ interface IOracleAggregator {
     // Immutable Configurations
 
     function chronicle() external view returns (IChronicle chronicle);
-    function chainlink() external view returns (AggregatorV3Interface chainlink);
-    function redstone() external view returns (AggregatorV3Interface redstone);
+    function chainlink() external view returns (AggregatorV3Interface chainlink); // Must be a price feed with decimals == 8
+    function redstone() external view returns (AggregatorV3Interface redstone); // Must be a price feed with decimals == 8
     function getAgeThreshold() external view returns(uint32);
     function checkAuthorisedDataConsumer(address consumer) external view;
 }

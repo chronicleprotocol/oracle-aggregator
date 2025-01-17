@@ -11,6 +11,9 @@ import {IOracleAggregator} from "./IOracleAggregator.sol";
  * @title OracleAggregator
  * @author The Redstone Oracles team
  * @notice This contract aggregates price data from multiple blockchain oracles: Chainlink, Chronicle, and RedStone.
+ *
+ * Important note! This oracle aggregator doesn't check proper decimals in the configured feeds. Please doublecheck
+ * that redstone() and chainlink() use 8 decimals and chronicle() uses 18
  * 
  * ## Key Principles:
  * - **Simplicity:** The contract is designed to be as simple as possible to minimize the risk of bugs.
@@ -26,14 +29,15 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
     uint8 public constant decimals = 8;
 
-    uint256 internal constant _CHRONICLE_SCALE_FAKTOR = 10 ** (18 - decimals); // 10 ** (chronicle_decimals - decimals)
+    uint256 internal constant _CHRONICLE_DECIMALS = 18;
+    uint256 internal constant _CHRONICLE_SCALE_FAKTOR = 10 ** (_CHRONICLE_DECIMALS - decimals);
     uint256 internal constant _GAS_LIMIT_PER_ORACLE_READ = 500_000; // Average gas cost for oracle calls is ~20K. It's quite safe, but in case of ethereum hardforks (with signifncant changes in gas calculation) we would need to deploy a new version of this contract
     uint256 internal constant _LATEST_ROUND_DATA_RETURN_SIZE = 160;
-    uint256 internal constant _TRY_READ_WITH_AGE_RETURN_SIZE = 96;    
+    uint256 internal constant _TRY_READ_WITH_AGE_RETURN_SIZE = 96;
 
-    function chronicle() public view virtual returns(IChronicle);
     function chainlink() public view virtual returns(AggregatorV3Interface);
     function redstone() public view virtual returns(AggregatorV3Interface);
+    function chronicle() public view virtual returns(IChronicle);
     function checkAuthorisedDataConsumer(address consumer) public view virtual;
     function getAgeThreshold() public view virtual returns(uint32);
 
