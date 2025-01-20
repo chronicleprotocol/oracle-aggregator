@@ -35,13 +35,12 @@ contract ETH_Oracle_Aggregated_Chronicle_Chainlink_Redstone is OracleAggregator 
 
     /// @inheritdoc IOracleAggregator
     function redstone() public pure virtual override returns(AggregatorV3Interface) {
-        // TODO: change to ETH Price Feed, currently it's weETH/USD feed
-        return AggregatorV3Interface(0xdDb6F90fFb4d3257dd666b69178e5B3c5Bf41136);
+        return AggregatorV3Interface(0x67F6838e58859d612E4ddF04dA396d6DABB66Dc4);
     }
 
     /// @inheritdoc IOracleAggregator
     function checkAuthorisedDataConsumer(address consumer) public pure virtual override {
-        if (consumer != 0x8105f69D9C41644c6A0803fDA7D03Aa70996cFD9) {
+        if (consumer != 0x8105f69D9C41644c6A0803fDA7D03Aa70996cFD9 && consumer != address(0)) {
             revert UnathorisedDataConsumer(consumer);
         }
     }
