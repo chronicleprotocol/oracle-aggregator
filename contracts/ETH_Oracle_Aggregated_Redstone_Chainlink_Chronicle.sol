@@ -47,7 +47,7 @@ contract ETH_Oracle_Aggregated_Chronicle_Chainlink_Redstone is OracleAggregator 
 
     /// @inheritdoc IOracleAggregator
     function getAgeThreshold() public pure virtual override returns(uint32) {
-        return 25 days; // in seconds
+        return 25 hours; // in seconds
     }
 
 }
