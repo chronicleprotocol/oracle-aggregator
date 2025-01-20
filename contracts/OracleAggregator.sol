@@ -32,9 +32,9 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
     uint8 public constant decimals = 8;
 
-    function chronicle() public view virtual returns(address);
-    function chainlink() public view virtual returns(address);
-    function redstone() public view virtual returns(address);
+    function chronicle() public view virtual returns(IChronicle);
+    function chainlink() public view virtual returns(AggregatorV3Interface);
+    function redstone() public view virtual returns(AggregatorV3Interface);
     function checkAuthorisedDataConsumer(address consumer) public view virtual;
     function getAgeThreshold() public view virtual returns(uint32);
 
@@ -44,13 +44,15 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
         (bool okChainlink, uint256 valChainlink) = _safeLatestRoundData(chainlink());
         (bool okRedstone, uint256 valRedstone) = _safeLatestRoundData(redstone());
 
-        uint256 index = 0;
-        goodOraclesCount = (okChronicle ? 1 : 0) + (okChainlink ? 1 : 0) + (okRedstone ? 1 : 0);
+        assembly {
+            goodOraclesCount := add(add(okChronicle, okChainlink), okRedstone) // ((okChronicle ? 1 : 0) + (okChainlink ? 1 : 0)) + (okRedstone ? 1 : 0)
+        }
+        uint256 insertIndex = 0;
         uint256[] memory values = new uint256[](goodOraclesCount);
 
-        if (okChronicle) values[index++] = valChronicle;
-        if (okChainlink) values[index++] = valChainlink;
-        if (okRedstone) values[index++] = valRedstone;
+        if (okChronicle) values[insertIndex++] = valChronicle;
+        if (okChainlink) values[insertIndex++] = valChainlink;
+        if (okRedstone) values[insertIndex++] = valRedstone;
 
         value = NumericArrayLib.pickMedian(values);
     }
@@ -59,16 +61,16 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
      * @notice Safely calls `latestRoundData` on a Chainlink-compatible Price Feed contract
      * @param priceFeed The address of the Chainlink Price Feed contract
      * @return success If the call succeeded and is not stale
-     * @return val The oracle value
+     * @return value The oracle value
      */
-    function _safeLatestRoundData(address priceFeed) internal view returns (bool success, uint256 val) {
+    function _safeLatestRoundData(AggregatorV3Interface priceFeed) internal view returns (bool success, uint256 value) {
         bytes memory data = abi.encodeWithSelector(
             AggregatorV3Interface.latestRoundData.selector
         );
 
         bytes memory returnData;
 
-        (success, returnData) = priceFeed.staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
+        (success, returnData) = address(priceFeed).staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
 
         if (success && returnData.length == _LATEST_ROUND_DATA_RETURN_SIZE) { // Checking returnData.length to avoid failures in abi.decode
             (/* roundId */, int256 answer, /* startedAt */, uint256 updatedAt, /* answeredInRound */) =
@@ -76,7 +78,7 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
             bool isStale;
             unchecked {
-                isStale = updatedAt + getAgeThreshold() < block.timestamp;
+                isStale = updatedAt < block.timestamp - getAgeThreshold();
             }
 
             if (isStale || answer <= 0 || uint256(answer) > uint256(type(uint128).max)) {
@@ -92,14 +94,14 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
     /**
      * @notice Safely calls `tryReadWithAge` on the Chronnicle Oracle contract
      * @return success If the call succeeded and is not stale
-     * @return val The oracle value
+     * @return value The oracle value
      */
-    function _safeReadFromChronicle() internal view returns (bool, uint256) {
+    function _safeReadFromChronicle() internal view returns (bool success, uint256 value) {
         bytes memory data = abi.encodeWithSelector(IChronicle.tryReadWithAge.selector);
-        (bool callSuccess, bytes memory returnData) = chronicle().staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
+        (bool callSuccess, bytes memory returnData) = address(chronicle()).staticcall{gas: _GAS_LIMIT_PER_ORACLE_READ}(data);
 
         if (callSuccess && returnData.length == _TRY_READ_WITH_AGE_RETURN_SIZE) { // Checking returnData.length to avoid failures in abi.decode
-            (bool isValid, uint256 value, uint256 age) = abi.decode(returnData, (bool, uint256, uint256));
+            (bool isValid, uint256 chronicleValue, uint256 age) = abi.decode(returnData, (bool, uint256, uint256));
 
             if (!isValid) {
                 return (false, 0);
@@ -107,16 +109,16 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
             bool isStale;
             unchecked {
-                isStale = age + getAgeThreshold() < block.timestamp;
+                isStale = age < block.timestamp - getAgeThreshold();
             }
 
-            if (isStale) { // We don't do assert(value <= type(uint128).max), because we will divide the value by 10**10 below
+            if (isStale) { // We don't do assertions for the size of the number here, because we will divide the value by 10**10 below
                 return (false, 0);
             }
 
-            value /= 10 ** (_DECIMALS_CHRONICLE - decimals);
+            chronicleValue /= 10 ** (_DECIMALS_CHRONICLE - decimals);
 
-            return (true, value);
+            return (true, chronicleValue);
         }
 
         return (false, 0);
@@ -135,10 +137,10 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
         )
     {
         checkAuthorisedDataConsumer(msg.sender);
-        (uint256 val, /* goodOraclesCount */) = getAggregatedOracleValue();
+        (uint256 value, /* goodOraclesCount */) = getAggregatedOracleValue();
 
         roundId = 1;
-        answer = int(val);
+        answer = int(value);
         startedAt = 0;
         updatedAt = block.timestamp;
         answeredInRound = 1; // = roundId
@@ -146,9 +148,9 @@ abstract contract OracleAggregator is AggregatorV3Interface, IOracleAggregator {
 
     function latestAnswer() external view returns (int256) {
         checkAuthorisedDataConsumer(msg.sender);
-        (uint256 val, /* goodOraclesCount */) = getAggregatedOracleValue();
+        (uint256 value, /* goodOraclesCount */) = getAggregatedOracleValue();
 
-        return int(val);
+        return int(value);
     }
 
     function latestRound() external pure virtual returns (uint80) {
