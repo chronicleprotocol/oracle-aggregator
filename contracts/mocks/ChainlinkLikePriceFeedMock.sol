@@ -4,18 +4,23 @@ pragma solidity ^0.8.17;
 
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
-// TODO: add features for OOG tests
-
 contract ChainlinkLikePriceFeedMock is AggregatorV3Interface {
+    error ZeroValueIsInvalid();
+
     int256 private _price;
     uint256 private _timestamp;
     uint80 private _roundId;
+    bool private _gasConsumingModeEnabled;
 
     // Function to set mock price, round ID, and timestamp
     function setValue(int256 price, uint80 roundId, uint256 timestamp) external {
         _price = price;
         _roundId = roundId;
         _timestamp = timestamp;
+    }
+
+    function enableGasConsumingMode() external {
+        _gasConsumingModeEnabled = true;
     }
 
     // Mock implementation of latestRoundData
@@ -26,6 +31,14 @@ contract ChainlinkLikePriceFeedMock is AggregatorV3Interface {
         uint256 updatedAt,
         uint80 answeredInRound
     ) {
+        if (_gasConsumingModeEnabled) {
+            bytes32[] memory arr = new bytes32[](1000000);
+        }
+
+        if (_price == 0) {
+            revert ZeroValueIsInvalid();
+        }
+
         return (_roundId, _price, 0, _timestamp, _roundId);
     }
 

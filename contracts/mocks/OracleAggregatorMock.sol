@@ -14,6 +14,7 @@ contract OracleAggregatorMock is OracleAggregator {
     AggregatorV3Interface internal _redstone;
     address internal _authorisedConsumer;
     uint32 internal _ageThreshold;
+    uint256 internal _price;
 
     constructor(AggregatorV3Interface __chainlink, IChronicle __chronicle, AggregatorV3Interface __redstone, uint32 __ageThreshold, address __authorisedConsumer) {
         _chainlink = __chainlink;
@@ -21,6 +22,10 @@ contract OracleAggregatorMock is OracleAggregator {
         _redstone = __redstone;
         _ageThreshold = __ageThreshold;
         _authorisedConsumer = __authorisedConsumer;
+    }
+
+    function readOracleForGasBenchmark() external {
+        (_price,) = getAggregatedOracleValue();
     }
 
     function description() public view virtual override returns (string memory) {

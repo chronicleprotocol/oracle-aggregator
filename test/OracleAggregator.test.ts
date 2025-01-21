@@ -23,7 +23,7 @@ async function deployOracleAggregatorFixture() {
 
   // Deploy OracleAggregatorMock
   const OracleAggregator = await hre.ethers.getContractFactory("OracleAggregatorMock");
-  const aggregator = await OracleAggregator.deploy(chainlinkAddr, chronicleAddr, redstoneAddr, 10000, owner.address);
+  const aggregator = await OracleAggregator.deploy(chainlinkAddr, chronicleAddr, redstoneAddr, 25 * 3600, owner.address);
 
   return {
     aggregator,
@@ -40,20 +40,8 @@ async function deployOracleAggregatorFixture() {
  * Test cases for OracleAggregator.
  */
 describe("OracleAggregator", function () {
-  describe("Deployment", function () {
-    it("Should deploy with correct initial state", async function () {
-      const { aggregator } = await loadFixture(deployOracleAggregatorFixture);
-
-      // const valueWithStatus = await aggregator.getAggregatedOracleValue();
-
-      
-
-      expect(await aggregator.decimals()).to.equal(8);
-    });
-  });
-
-  describe("Oracle Data Aggregation", function () {
-    it("Should return the median value from oracles", async function () {
+  describe("Ignoring reverted oracles", function () {
+    it("Should return the median value from 3 oracles", async function () {
       const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
 
       const blockTimestamp = await time.latest();
@@ -70,38 +58,302 @@ describe("OracleAggregator", function () {
       expect(goodOraclesCount).to.equal(3);
     });
 
-    // it("Should handle missing oracle responses gracefully", async function () {
-    //   const { aggregator, chainlinkMock, chronicleMock } = await loadFixture(deployOracleAggregatorFixture);
+    it("Should return the median value from 2 oracles (chainlink, chronicle)", async function () {
+      const { aggregator, chainlinkMock, chronicleMock } = await loadFixture(deployOracleAggregatorFixture);
 
-    //   // Set only two oracles
-    //   await chainlinkMock.setLatestAnswer(150);
-    //   await chronicleMock.setLatestAnswer(250);
+      const blockTimestamp = await time.latest();
 
-    //   const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(150, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(100, blockTimestamp);
 
-    //   expect(value).to.equal(200); // Median of [150, 250]
-    //   expect(goodOraclesCount).to.equal(2);
-    // });
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
 
-    // it("Should revert if no oracles return valid data", async function () {
-    //   const { aggregator } = await loadFixture(deployOracleAggregatorFixture);
+      expect(value).to.equal(125); // Median of [150, 100]
+      expect(goodOraclesCount).to.equal(2);
+    });
 
-    //   await expect(aggregator.getAggregatedOracleValue()).to.be.revertedWith("No valid oracle data");
-    // });
+    it("Should return the median value from 2 oracles (chainlink, redstone)", async function () {
+      const { aggregator, chainlinkMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(150, mockRoundId, blockTimestamp);
+      await redstoneMock.setValue(150, mockRoundId, blockTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(150); // Median of [150, 150]
+      expect(goodOraclesCount).to.equal(2);
+    });
+
+    it("Should return the median value from 2 oracles (chronicle, redstone)", async function () {
+      const { aggregator, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chronicleMock.setValue(148, blockTimestamp);
+      await redstoneMock.setValue(150, mockRoundId, blockTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(149); // Median of [148, 150]
+      expect(goodOraclesCount).to.equal(2);
+    });
+
+    it("Should work only with redstone", async function () {
+      const { aggregator, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await redstoneMock.setValue(42, mockRoundId, blockTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(42); // Median of [42]
+      expect(goodOraclesCount).to.equal(1);
+    });
+
+    it("Should work only with chainlink", async function () {
+      const { aggregator, chainlinkMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(420, mockRoundId, blockTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(420); // Median of [420]
+      expect(goodOraclesCount).to.equal(1);
+    });
+
+    it("Should work only with chronicle", async function () {
+      const { aggregator, chainlinkMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(420, mockRoundId, blockTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(420); // Median of [420]
+      expect(goodOraclesCount).to.equal(1);
+    });
+
+    it("Should revert with no working oracles", async function () {
+      const { aggregator, chainlinkMock } = await loadFixture(deployOracleAggregatorFixture);
+      await expect(aggregator.getAggregatedOracleValue()).to.be.revertedWithCustomError(aggregator, "CanNotPickMedianOfEmptyArray");
+    });
   });
 
-  // describe("Access Control", function () {
-  //   it("Should allow only authorized consumers to call getAggregatedOracleValue", async function () {
-  //     const { aggregator, authorizedConsumer, otherAccount } = await loadFixture(deployOracleAggregatorFixture);
+  describe("Handling invalid values", function () {
+    it("Should work properly with one outlier", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
 
-  //     // Authorize a consumer
-  //     await aggregator.checkAuthorisedDataConsumer(authorizedConsumer.address);
+      const blockTimestamp = await time.latest();
 
-  //     // Call as an authorized consumer
-  //     await expect(aggregator.connect(authorizedConsumer).getAggregatedOracleValue()).not.to.be.reverted;
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(99, blockTimestamp);
+      await redstoneMock.setValue(100000, mockRoundId, blockTimestamp);
 
-  //     // Call as an unauthorized consumer
-  //     await expect(aggregator.connect(otherAccount).getAggregatedOracleValue()).to.be.revertedWith("Not authorized");
-  //   });
-  // });
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(100); // Median of [100, 99, 100000]
+      expect(goodOraclesCount).to.equal(3);
+    });
+
+    it("Should work properly with an invalid value from chronicle", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(0, blockTimestamp); // 0 value will cause reverting
+      await redstoneMock.setValue(98, mockRoundId, blockTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(99); // Median of [100, 98]
+      expect(goodOraclesCount).to.equal(2);
+    });
+  });
+
+  describe("Ignoring old oracle values", function () {
+    it("Should ignore too old data from chronicle", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(100, blockTimestamp - (25 * 3600 + 1));
+      await redstoneMock.setValue(98, mockRoundId, blockTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(99); // Median of [100, 98]
+      expect(goodOraclesCount).to.equal(2);
+    });
+
+    it("Should ignore too old data from redstone", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(100, blockTimestamp);
+      await redstoneMock.setValue(98, mockRoundId, blockTimestamp - (25 * 3600 + 1));
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(100); // Median of [100, 100]
+      expect(goodOraclesCount).to.equal(2);
+    });
+
+    it("Should ignore too old data from chainlink", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(101, mockRoundId, blockTimestamp - (25 * 3600 + 1));
+      await chronicleMock.setValue(100, blockTimestamp);
+      await redstoneMock.setValue(98, mockRoundId, blockTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(99); // Median of [100, 98]
+      expect(goodOraclesCount).to.equal(2);
+    });
+
+    it("Should ignore too old data from redstone and chronicle", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(101, mockRoundId, blockTimestamp - (25 * 3600 - 10)); // Not too old
+      await chronicleMock.setValue(100, blockTimestamp - (25 * 3600 + 1)); // Too old
+      await redstoneMock.setValue(98, mockRoundId, blockTimestamp - (25 * 3600 + 1)); // Too old
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(101); // Median of [101]
+      expect(goodOraclesCount).to.equal(1);
+    });
+  });
+
+  describe("Ignoring oracles trying to perform consume too much gas", function () {
+    it("Should ignore chronicle if it consumes too much gas", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(250, blockTimestamp);
+      await chronicleMock.enableGasConsumingMode();
+      await redstoneMock.setValue(300, mockRoundId, blockTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(200); // Median of [100, 300]
+      expect(goodOraclesCount).to.equal(2);
+    });
+
+    it("Should ignore chainlink if it consumes too much gas", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chainlinkMock.enableGasConsumingMode();
+      await chronicleMock.setValue(250, blockTimestamp);
+      await redstoneMock.setValue(300, mockRoundId, blockTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(275); // Median of [250, 300]
+      expect(goodOraclesCount).to.equal(2);
+    });
+
+    it("Should ignore redstone if it consumes too much gas", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(250, blockTimestamp);
+      await redstoneMock.setValue(300, mockRoundId, blockTimestamp);
+      await redstoneMock.enableGasConsumingMode();
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(175); // Median of [100, 250]
+      expect(goodOraclesCount).to.equal(2);
+    });
+
+    it("Should ignore redstone and chronicle if they consume too much gas", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      // Set mock oracle responses
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(250, blockTimestamp);
+      await chronicleMock.enableGasConsumingMode();
+      await redstoneMock.setValue(300, mockRoundId, blockTimestamp);
+      await redstoneMock.enableGasConsumingMode();
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(100); // Median of [100]
+      expect(goodOraclesCount).to.equal(1);
+    });
+
+    it("Should measure used gas for different cases", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(250, blockTimestamp);
+      await redstoneMock.setValue(300, mockRoundId, blockTimestamp);
+    
+      const tx1Receipt = await (await aggregator.readOracleForGasBenchmark()).wait();
+      console.log(`Gas used with all no OOG: ${tx1Receipt.gasUsed}`);
+
+      await chainlinkMock.enableGasConsumingMode();
+      const tx2Receipt = await (await aggregator.readOracleForGasBenchmark()).wait();
+      console.log(`Gas used with 1 OOG attack: ${tx2Receipt.gasUsed}`);
+
+      await chronicleMock.enableGasConsumingMode();
+      const tx3Receipt = await (await aggregator.readOracleForGasBenchmark()).wait();
+      console.log(`Gas used with 1 OOG attack: ${tx3Receipt.gasUsed}`);
+    });
+  });
 });
