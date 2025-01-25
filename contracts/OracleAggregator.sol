@@ -9,7 +9,6 @@ import {IOracleAggregator} from "./IOracleAggregator.sol";
 
 /**
  * @title OracleAggregator
- * @author The Redstone Oracles team
  * @notice This contract aggregates price data from multiple blockchain oracles: Chainlink, Chronicle, and RedStone.
  *
  * Important note: This aggregator does not check the decimals of the configured feeds. 
