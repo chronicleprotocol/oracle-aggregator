@@ -149,3 +149,7 @@ ignition/deployments/chain-31337
 
 .DS_Store
 .hidden
+
+# This project uses yarn (see packageManager in package.json).
+# An npm lockfile here duplicates every advisory in yarn.lock.
+package-lock.json
