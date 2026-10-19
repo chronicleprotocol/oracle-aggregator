@@ -137,13 +137,12 @@ describe("OracleAggregator", function () {
     });
 
     it("Should work only with chronicle", async function () {
-      const { aggregator, chainlinkMock } = await loadFixture(deployOracleAggregatorFixture);
+      const { aggregator, chronicleMock } = await loadFixture(deployOracleAggregatorFixture);
 
       const blockTimestamp = await time.latest();
 
       // Set mock oracle responses
-      const mockRoundId = 0;
-      await chainlinkMock.setValue(420, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(420, blockTimestamp);
 
       const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
 
@@ -194,6 +193,108 @@ describe("OracleAggregator", function () {
   });
 
   describe("Ignoring old oracle values", function () {
+    it("Should accept chainlink at the age threshold and expire it one second later", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+      const chainlinkTimestamp = blockTimestamp - 10;
+      const ageThreshold = Number(await aggregator.getAgeThreshold());
+      const expiryTimestamp = chainlinkTimestamp + ageThreshold;
+
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, chainlinkTimestamp);
+      await chronicleMock.setValue(200, blockTimestamp);
+      await redstoneMock.setValue(500, mockRoundId, blockTimestamp);
+
+      await time.increaseTo(expiryTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(200); // Median of [100, 200, 500]
+      expect(goodOraclesCount).to.equal(3);
+
+      await time.increase(1);
+
+      const [valueAfterExpiry, goodOraclesCountAfterExpiry] = await aggregator.getAggregatedOracleValue();
+
+      expect(valueAfterExpiry).to.equal(350); // Median of [200, 500]
+      expect(goodOraclesCountAfterExpiry).to.equal(2);
+      expect(await aggregator.latestAnswer()).to.equal(350);
+
+      const [, answer, , updatedAt] = await aggregator.latestRoundData();
+
+      expect(answer).to.equal(350);
+      expect(updatedAt).to.equal(expiryTimestamp + 1);
+    });
+
+    it("Should accept chronicle at the age threshold and expire it one second later", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+      const chronicleTimestamp = blockTimestamp - 10;
+      const ageThreshold = Number(await aggregator.getAgeThreshold());
+      const expiryTimestamp = chronicleTimestamp + ageThreshold;
+
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(200, chronicleTimestamp);
+      await redstoneMock.setValue(500, mockRoundId, blockTimestamp);
+
+      await time.increaseTo(expiryTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(200); // Median of [100, 200, 500]
+      expect(goodOraclesCount).to.equal(3);
+
+      await time.increase(1);
+
+      const [valueAfterExpiry, goodOraclesCountAfterExpiry] = await aggregator.getAggregatedOracleValue();
+
+      expect(valueAfterExpiry).to.equal(300); // Median of [100, 500]
+      expect(goodOraclesCountAfterExpiry).to.equal(2);
+      expect(await aggregator.latestAnswer()).to.equal(300);
+
+      const [, answer, , updatedAt] = await aggregator.latestRoundData();
+
+      expect(answer).to.equal(300);
+      expect(updatedAt).to.equal(expiryTimestamp + 1);
+    });
+
+    it("Should accept redstone at the age threshold and expire it one second later", async function () {
+      const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
+
+      const blockTimestamp = await time.latest();
+      const redstoneTimestamp = blockTimestamp - 10;
+      const ageThreshold = Number(await aggregator.getAgeThreshold());
+      const expiryTimestamp = redstoneTimestamp + ageThreshold;
+
+      const mockRoundId = 0;
+      await chainlinkMock.setValue(100, mockRoundId, blockTimestamp);
+      await chronicleMock.setValue(200, blockTimestamp);
+      await redstoneMock.setValue(500, mockRoundId, redstoneTimestamp);
+
+      await time.increaseTo(expiryTimestamp);
+
+      const [value, goodOraclesCount] = await aggregator.getAggregatedOracleValue();
+
+      expect(value).to.equal(200); // Median of [100, 200, 500]
+      expect(goodOraclesCount).to.equal(3);
+
+      await time.increase(1);
+
+      const [valueAfterExpiry, goodOraclesCountAfterExpiry] = await aggregator.getAggregatedOracleValue();
+
+      expect(valueAfterExpiry).to.equal(150); // Median of [100, 200]
+      expect(goodOraclesCountAfterExpiry).to.equal(2);
+      expect(await aggregator.latestAnswer()).to.equal(150);
+
+      const [, answer, , updatedAt] = await aggregator.latestRoundData();
+
+      expect(answer).to.equal(150);
+      expect(updatedAt).to.equal(expiryTimestamp + 1);
+    });
+
     it("Should ignore too old data from chronicle", async function () {
       const { aggregator, chainlinkMock, chronicleMock, redstoneMock } = await loadFixture(deployOracleAggregatorFixture);
 
